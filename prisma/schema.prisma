@@ -1,0 +1,43 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User table — stores registered users
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String         // bcrypt hashed — never plain text
+  role          Role           @default(PLAYER)
+  isActive      Boolean        @default(true) // false = suspended
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relation — one user can have many active refresh tokens (multi-device)
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+// Stores issued refresh tokens — enables rotation and theft detection
+model RefreshToken {
+  id        String   @id @default(uuid())
+  jti       String   @unique  // matches jti claim in the JWT — used for lookup
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+}
+
+enum Role {
+  PLAYER
+  VENUE_OWNER
+  ADMIN
+}
