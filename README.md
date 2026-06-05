@@ -1,4 +1,4 @@
-# JWT Authentication
+# JWT Authentication || OAuth 2.0 Authorization Code Grant Flow
 
 A NestJS authentication service using JWT, Prisma, and Redis.
 
