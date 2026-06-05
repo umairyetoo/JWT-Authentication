@@ -120,6 +120,17 @@ export class AuthService {
 
     // Return user without password — toIUser mapping in UserService handles this
     const { password: _removed, ...safeUser } = user;
+    
+    // Mask email for security: keep first char, mask rest of local part
+    if (safeUser.email) {
+      const [localPart, domain] = safeUser.email.split('@');
+      if (localPart && domain) {
+        const maskedLocal = localPart.charAt(0) + '*'.repeat(localPart.length - 1);
+        // @ts-ignore - Assuming safeUser is mutable here
+        safeUser.email = `${maskedLocal}@${domain}`;
+      }
+    }
+
     return { user: safeUser, ...tokens };
   }
 

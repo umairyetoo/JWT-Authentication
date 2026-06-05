@@ -39,6 +39,10 @@ async function bootstrap(): Promise<void> {
 
   const swaggerDoc = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api', app, swaggerDoc);
+  
+  // Enable CORS so the simple HTML frontend can make requests to this API
+  app.enableCors();
+  
   await app.listen(port);
 
   logger.log(`Auth service running on port ${port}`);

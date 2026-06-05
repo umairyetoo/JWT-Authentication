@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - JWT Authentication</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg: #F9FAFB;
+            --card-bg: #FFFFFF;
+            --text-main: #111827;
+            --text-muted: #6B7280;
+            --border: #E5E7EB;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            padding: 2.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            font-size: 0.875rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            box-sizing: border-box;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        button {
+            width: 100%;
+            padding: 0.875rem;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 1.5rem 0;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .divider span {
+            padding: 0 0.75rem;
+        }
+
+        .google-btn {
+            background-color: white;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+
+        .google-btn:hover {
+            background-color: var(--bg);
+        }
+
+        .google-btn img {
+            width: 20px;
+            height: 20px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container fade-in" id="loginContainer">
+        <h1>Welcome Back</h1>
+        <p class="subtitle">Please enter your details to sign in.</p>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">Email address</label>
+                <input type="email" id="email" placeholder="you@example.com" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="••••••••" required>
+            </div>
+            <button type="submit">Sign in with Email</button>
+        </form>
+
+        <div class="divider">
+            <span>OR</span>
+        </div>
+
+        <!-- Google OAuth 2.0 Authorization Code Grant Flow button -->
+        <button class="google-btn" id="googleLoginBtn">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+                <g transform="matrix(1, 0, 0, 1, 27.009001, -39.238998)">
+                    <path fill="#4285F4"
+                        d="M -3.264 51.509 C -3.264 50.719 -3.334 49.969 -3.454 49.239 L -14.754 49.239 L -14.754 53.749 L -8.284 53.749 C -8.574 55.229 -9.424 56.479 -10.684 57.329 L -10.684 60.329 L -6.824 60.329 C -4.564 58.239 -3.264 55.159 -3.264 51.509 Z" />
+                    <path fill="#34A853"
+                        d="M -14.754 63.239 C -11.514 63.239 -8.804 62.159 -6.824 60.329 L -10.684 57.329 C -11.764 58.049 -13.134 58.489 -14.754 58.489 C -17.884 58.489 -20.534 56.379 -21.484 53.529 L -25.464 53.529 L -25.464 56.619 C -23.494 60.539 -19.444 63.239 -14.754 63.239 Z" />
+                    <path fill="#FBBC05"
+                        d="M -21.484 53.529 C -21.734 52.809 -21.864 52.039 -21.864 51.239 C -21.864 50.439 -21.724 49.669 -21.484 48.949 L -21.484 45.859 L -25.464 45.859 C -26.284 47.479 -26.754 49.299 -26.754 51.239 C -26.754 53.179 -26.284 54.999 -25.464 56.619 L -21.484 53.529 Z" />
+                    <path fill="#EA4335"
+                        d="M -14.754 43.989 C -12.984 43.989 -11.404 44.599 -10.154 45.789 L -6.734 42.369 C -8.804 40.429 -11.514 39.239 -14.754 39.239 C -19.444 39.239 -23.494 41.939 -25.464 45.859 L -21.484 48.949 C -20.534 46.099 -17.884 43.989 -14.754 43.989 Z" />
+                </g>
+            </svg>
+            Sign in with Google (OAuth 2.0 Auth Code)
+        </button>
+    </div>
+
+    <div class="container hidden" id="dashboardContainer">
+        <h1>Welcome, <span id="userNameDisplay">User</span>! 🎉</h1>
+        <p class="subtitle" id="welcomeMessage">You have successfully logged in.</p>
+
+        <div
+            style="text-align: left; background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem; overflow-x: auto; color: #1f2937;">
+            <pre id="responseOutput" style="font-size: 0.8rem; margin: 0;"></pre>
+        </div>
+
+        <button id="logoutBtn" style="background-color: #EF4444;">Logout</button>
+    </div>
+
+    <script>
+        const loginContainer = document.getElementById('loginContainer');
+        const dashboardContainer = document.getElementById('dashboardContainer');
+        const loginForm = document.getElementById('loginForm');
+        const googleLoginBtn = document.getElementById('googleLoginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const userNameDisplay = document.getElementById('userNameDisplay');
+        const emailInput = document.getElementById('email');
+
+        // Simple Email/Password Login
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = emailInput.value;
+            const password = document.getElementById('password').value;
+
+            try {
+                // Adjust the port if your backend runs on a different one
+                const res = await fetch('http://localhost:3001/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    let name = email.split('@')[0].split('.').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+                    if (data.user && data.user.name) name = data.user.name;
+
+                    // Remove tokens from being displayed
+                    const displayData = { ...data };
+                    delete displayData.accessToken;
+                    delete displayData.refreshToken;
+
+                    // Securely mask the email in the response output
+                    if (displayData.user && displayData.user.email) {
+                        const [localPart, domain] = displayData.user.email.split('@');
+                        if (localPart && domain) {
+                            // Keep first character, mask the rest of the local part
+                            const maskedLocal = localPart.charAt(0) + '*'.repeat(localPart.length - 1);
+                            displayData.user.email = `${maskedLocal}@${domain}`;
+                        }
+                    }
+
+                    showDashboard(name, "Login Successful! Server Response:");
+                    document.getElementById('responseOutput').textContent = JSON.stringify(displayData, null, 2);
+                } else {
+                    alert('Login failed: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error connecting to local server: ' + error.message);
+            }
+        });
+
+        // Google OAuth 2.0 Authorization Code Grant Flow (Placeholder)
+        googleLoginBtn.addEventListener('click', () => {
+            // TODO: To implement this later, you will redirect the user to Google's Authorization Endpoint:
+            // window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&response_type=code&scope=email profile`;
+
+            // For now, we mock the flow
+            alert('Redirecting to Google OAuth 2.0 Authorization Endpoint...\n(This is a placeholder for the Authorization Code Grant flow)');
+
+            // Mocking the redirect back to the app with an authorization code and successful login
+            setTimeout(() => {
+                showDashboard("Google User", "You have successfully logged in using Google OAuth 2.0!");
+            }, 800);
+        });
+
+        // Logout Flow
+        logoutBtn.addEventListener('click', () => {
+            dashboardContainer.classList.remove('fade-in');
+            dashboardContainer.classList.add('hidden');
+
+            loginContainer.classList.remove('hidden');
+            loginContainer.classList.add('fade-in');
+
+            loginForm.reset();
+            document.getElementById('responseOutput').textContent = '';
+        });
+
+        function showDashboard(name, message) {
+            userNameDisplay.textContent = name;
+            document.getElementById('welcomeMessage').textContent = message;
+
+            loginContainer.classList.remove('fade-in');
+            loginContainer.classList.add('hidden');
+
+            dashboardContainer.classList.remove('hidden');
+            dashboardContainer.classList.add('fade-in');
+        }
+    </script>
+</body>
+
+</html>
