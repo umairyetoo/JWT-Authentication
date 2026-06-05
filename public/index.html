@@ -266,18 +266,10 @@
             }
         });
 
-        // Google OAuth 2.0 Authorization Code Grant Flow (Placeholder)
+        // Google OAuth 2.0 Authorization Code Grant Flow
         googleLoginBtn.addEventListener('click', () => {
-            // TODO: To implement this later, you will redirect the user to Google's Authorization Endpoint:
-            // window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&response_type=code&scope=email profile`;
-
-            // For now, we mock the flow
-            alert('Redirecting to Google OAuth 2.0 Authorization Endpoint...\n(This is a placeholder for the Authorization Code Grant flow)');
-
-            // Mocking the redirect back to the app with an authorization code and successful login
-            setTimeout(() => {
-                showDashboard("Google User", "You have successfully logged in using Google OAuth 2.0!");
-            }, 800);
+            // Redirect to the backend OAuth initialization endpoint
+            window.location.href = 'http://localhost:3001/auth/google';
         });
 
         // Logout Flow
@@ -302,6 +294,45 @@
             dashboardContainer.classList.remove('hidden');
             dashboardContainer.classList.add('fade-in');
         }
+
+        // Check for tokens in URL on load (OAuth callback)
+        window.addEventListener('load', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const accessToken = urlParams.get('accessToken');
+            const refreshToken = urlParams.get('refreshToken');
+
+            if (accessToken && refreshToken) {
+                // Clear the URL parameters for security and cleanliness
+                window.history.replaceState({}, document.title, window.location.pathname);
+
+                try {
+                    // Use the access token to fetch user profile from /auth/me
+                    const res = await fetch('http://localhost:3001/auth/me', {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+
+                    if (res.ok) {
+                        const profile = await res.json();
+                        const displayName = profile.name || 'Google User';
+
+                        showDashboard(displayName, 'Logged in via Google OAuth 2.0! Server Response:');
+                        document.getElementById('responseOutput').textContent = JSON.stringify(profile, null, 2);
+                    } else {
+                        showDashboard('Google User', 'Logged in via Google OAuth 2.0!');
+                        document.getElementById('responseOutput').textContent = JSON.stringify({
+                            message: "Tokens received but could not fetch profile.",
+                            authProvider: "GOOGLE"
+                        }, null, 2);
+                    }
+                } catch (err) {
+                    showDashboard('Google User', 'Logged in via Google OAuth 2.0!');
+                    document.getElementById('responseOutput').textContent = JSON.stringify({
+                        message: "Tokens received. Profile fetch error: " + err.message,
+                        authProvider: "GOOGLE"
+                    }, null, 2);
+                }
+            }
+        });
     </script>
 </body>
 

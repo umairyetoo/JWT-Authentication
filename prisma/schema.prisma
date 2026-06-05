@@ -12,7 +12,10 @@ datasource db {
 model User {
   id            String         @id @default(uuid())
   email         String         @unique
-  password      String         // bcrypt hashed — never plain text
+  name          String?        // User's display name
+  password      String?        // bcrypt hashed — optional for OAuth
+  authProvider  AuthProvider   @default(LOCAL)
+  providerId    String?        @unique
   role          Role           @default(PLAYER)
   isActive      Boolean        @default(true) // false = suspended
   createdAt     DateTime       @default(now())
@@ -22,6 +25,11 @@ model User {
   refreshTokens RefreshToken[]
 
   @@map("users")
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
 }
 
 // Stores issued refresh tokens — enables rotation and theft detection

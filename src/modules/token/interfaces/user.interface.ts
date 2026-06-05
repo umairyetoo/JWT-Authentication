@@ -10,6 +10,7 @@
 export interface IUser {
   id: string;
   email: string;
+  name?: string | null;
   role: string;
   isActive: boolean;
 }
@@ -19,5 +20,5 @@ export interface IUser {
  * for password verification. Never returned to callers.
  */
 export interface IUserWithPassword extends IUser {
-  password: string;
+  password: string | null;
 }

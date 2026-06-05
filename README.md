@@ -7,6 +7,7 @@ A NestJS authentication service using JWT, Prisma, and Redis.
 - User registration and login
 - Access token + refresh token issuance
 - Refresh token rotation
+- **Google OAuth 2.0 login (Authorization Code Grant)**
 - Logout and password-based token revocation
 - Redis-backed JWT blacklist for token invalidation
 - Swagger API documentation at `/api`
@@ -108,6 +109,143 @@ This service uses asymmetric JWT signing with RSA key pairs.
   - Private key: signing only.
   - Public key: verification only.
   - This is safer for distributed systems and better for long-term key management.
+
+## OAuth 2.0 — Google Login (Authorization Code Grant)
+
+This project implements Google OAuth 2.0 using the **Authorization Code Grant** flow. This is the most secure standard OAuth flow for server-side applications — the user's credentials are never exposed to the frontend.
+
+### How the flow works
+
+```
+┌──────────┐      1. Click "Login with Google"      ┌──────────────┐
+│          │ ──────────────────────────────────────▶ │              │
+│ Frontend │                                        │   Backend    │
+│ (HTML)   │ ◀────────────────────────────────────── │  (NestJS)    │
+│          │      2. Redirect to Google              │              │
+└──────────┘                                        └──────┬───────┘
+     │                                                     │
+     │  3. User logs in on Google                          │
+     ▼                                                     │
+┌──────────────┐                                           │
+│   Google     │  4. Redirects back with `code`            │
+│   Consent    │ ─────────────────────────────────────────▶ │
+│   Screen     │                                           │
+└──────────────┘                                           │
+                                                           │
+                   5. Backend exchanges `code` for         │
+                      Google access token (server-to-      │
+                      server, secret never exposed)        │
+                                                           │
+                   6. Backend fetches user profile          │
+                      from Google People API               │
+                                                           │
+                   7. Backend creates/finds user in DB     │
+                                                           │
+                   8. Backend generates JWT pair            │
+                      (access + refresh token)             │
+                                                           │
+     ┌──────────┐  9. Redirect to frontend with           │
+     │ Frontend │◀──── tokens in URL params  ◀─────────────┘
+     └──────────┘
+          │
+          │ 10. Frontend calls GET /auth/me with
+          │     access token to display user profile
+          ▼
+     ┌──────────┐
+     │Dashboard │  Shows: name, masked email, role
+     └──────────┘
+```
+
+### Step 1: Create a Google OAuth App
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (or select an existing one).
+3. Navigate to **APIs & Services → Credentials**.
+4. Click **Create Credentials → OAuth client ID**.
+5. Select **Web application** as the application type.
+6. Set the following:
+   - **Authorized JavaScript origins**: `http://localhost:3001`
+   - **Authorized redirect URIs**: `http://localhost:3001/auth/google/callback`
+7. Click **Create**. Copy the **Client ID** and **Client Secret**.
+
+> **Note:** You may also need to configure the **OAuth consent screen** under APIs & Services → OAuth consent screen. Set the app to "External" for testing, add your email as a test user, and add the scopes `email`, `profile`, and `openid`.
+
+### Step 2: Add environment variables
+
+Add the following to your `.env` file:
+
+```env
+# Google OAuth 2.0
+GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="your-client-secret"
+GOOGLE_REDIRECT_URI="http://localhost:3001/auth/google/callback"
+```
+
+These are **required** for Google login to work. Without them, the backend will throw an error when the Google button is clicked.
+
+### Step 3: Run the app and test
+
+1. Start the backend:
+   ```bash
+   npm run start:dev
+   ```
+2. Open `http://localhost:3001` in your browser (the backend serves `public/index.html`).
+3. Click **"Sign in with Google (OAuth 2.0 Auth Code)"**.
+4. Sign in with your Google account on the consent screen.
+5. You will be redirected back to the dashboard showing your **name** and **masked email**.
+
+### OAuth endpoints
+
+| Method | Endpoint                | Description                                  |
+| ------ | ----------------------- | -------------------------------------------- |
+| GET    | `/auth/google`          | Redirects user to Google's consent screen    |
+| GET    | `/auth/google/callback` | Handles the callback, exchanges code, issues JWT |
+| GET    | `/auth/me`              | Returns the current user's profile (protected) |
+
+### Architecture (SOLID)
+
+The OAuth implementation follows strict SOLID principles:
+
+- **`IOAuthProvider` interface** (`interfaces/oauth-provider.interface.ts`)
+  Defines the contract: `getAuthorizationUrl()`, `exchangeCodeForTokens()`, `getUserProfile()`.
+  Any new provider (GitHub, Facebook) can implement this same interface.
+
+- **`GoogleOAuthProvider`** (`providers/google-oauth.provider.ts`)
+  Implements `IOAuthProvider` specifically for Google. Handles Google URLs, token exchange via `axios`, and profile fetching. *Single Responsibility — only knows about Google's API.*
+
+- **`AuthService`**
+  Orchestrates the OAuth login flow: calls the provider, creates/finds the user, generates JWT tokens. *Does not know how Google's API works — delegates to the provider.*
+
+- **`AuthController`**
+  HTTP layer only — redirects and extracts query params. *Zero business logic.*
+
+- **`UserService`**
+  Handles `createOAuthUser()` — creates a new user without a password, or links an existing email-based user to a Google account. *Single Responsibility — only knows about user data.*
+
+### Database changes for OAuth
+
+The `User` model was updated to support OAuth users:
+
+```prisma
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  name          String?        // Display name from Google profile
+  password      String?        // Optional — null for OAuth-only users
+  authProvider  AuthProvider   @default(LOCAL)
+  providerId    String?        @unique  // Google's unique user ID
+  // ... other fields
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+```
+
+- `password` is now optional (`String?`) — Google users don't have a local password.
+- `authProvider` tracks how the user signed up (`LOCAL` or `GOOGLE`).
+- `providerId` stores Google's unique user ID to prevent duplicate accounts.
 
 ## Notes
 

@@ -8,6 +8,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { UserService } from '../user/user.service';
 import { TokenService } from '../token/token.service';
+import { GoogleOAuthProvider } from './providers/google-oauth.provider';
 import { IAuthResponse } from './interfaces/auth-response.interface';
 import { ITokenPair } from '../token/interfaces/token-pair.interface';
 
@@ -38,6 +39,7 @@ export class AuthService {
   constructor(
     private readonly userService: UserService,
     private readonly tokenService: TokenService,
+    private readonly googleOAuthProvider: GoogleOAuthProvider,
   ) {}
 
   /**
@@ -66,6 +68,74 @@ export class AuthService {
     this.logger.log(`New user registered: ${user.id}`);
 
     return { user, ...tokens };
+  }
+
+  /**
+   * Returns the Google OAuth authorization URL.
+   */
+  getGoogleAuthUrl(): string {
+    return this.googleOAuthProvider.getAuthorizationUrl();
+  }
+
+  /**
+   * Handles Google OAuth login via code exchange.
+   */
+  async loginWithGoogle(code: string): Promise<IAuthResponse> {
+    const accessToken = await this.googleOAuthProvider.exchangeCodeForTokens(code);
+    const profile = await this.googleOAuthProvider.getUserProfile(accessToken);
+
+    const user = await this.userService.createOAuthUser(
+      profile.email,
+      'GOOGLE',
+      profile.providerId,
+      profile.name,
+    );
+
+    if (!user.isActive) {
+      throw new ForbiddenException('Account has been suspended');
+    }
+
+    const tokens = await this.tokenService.generateTokenPair(
+      user.id,
+      user.email,
+      user.role,
+    );
+
+    this.logger.log(`User logged in via Google: ${user.id}`);
+
+    const safeUser = { ...user };
+    if (safeUser.email) {
+      const [localPart, domain] = safeUser.email.split('@');
+      if (localPart && domain) {
+        const maskedLocal = localPart.charAt(0) + '*'.repeat(localPart.length - 1);
+        safeUser.email = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return { user: safeUser, ...tokens };
+  }
+
+  /**
+   * Fetches the user profile and masks the email.
+   *
+   * SOLID — S: Only responsible for fetching and masking.
+   * Delegates DB lookup to UserService.
+   */
+  async getProfile(userId: string): Promise<any> {
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const safeUser = { ...user };
+    if (safeUser.email) {
+      const [localPart, domain] = safeUser.email.split('@');
+      if (localPart && domain) {
+        const maskedLocal = localPart.charAt(0) + '*'.repeat(localPart.length - 1);
+        safeUser.email = `${maskedLocal}@${domain}`;
+      }
+    }
+    return safeUser;
   }
 
   /**

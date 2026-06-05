@@ -26,10 +26,12 @@ import {
  */
 export interface IUserService {
   createUser(email: string, password: string): Promise<IUser>;
+  createOAuthUser(email: string, provider: 'LOCAL' | 'GOOGLE', providerId: string, name?: string): Promise<IUser>;
   findByEmail(email: string): Promise<IUserWithPassword | null>;
   findById(id: string): Promise<IUser | null>;
+  findByProviderId(providerId: string): Promise<IUser | null>;
   updatePassword(userId: string, hashedPassword: string): Promise<void>;
-  validatePassword(plain: string, hashed: string): Promise<boolean>;
+  validatePassword(plain: string, hashed: string | null): Promise<boolean>;
 }
 
 /**
@@ -84,6 +86,42 @@ export class UserService implements IUserService {
   }
 
   /**
+   * Creates or links an OAuth user.
+   */
+  async createOAuthUser(email: string, provider: 'LOCAL' | 'GOOGLE', providerId: string, name?: string): Promise<IUser> {
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existing) {
+      if (!existing.providerId || (!existing.name && name)) {
+        const updated = await this.prisma.user.update({
+          where: { email },
+          data: { 
+            providerId, 
+            authProvider: provider as any,
+            ...(name && !existing.name ? { name } : {}) 
+          },
+        });
+        return this.toIUser(updated);
+      }
+      return this.toIUser(existing);
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        name,
+        authProvider: provider as any,
+        providerId,
+      },
+    });
+
+    this.logger.log(`OAuth User created: ${user.id}`);
+    return this.toIUser(user);
+  }
+
+  /**
    * Finds a user by email — includes password for login verification.
    * Only used by AuthService during login — never exposed via API.
    *
@@ -124,6 +162,22 @@ export class UserService implements IUserService {
   }
 
   /**
+   * Finds a user by provider ID.
+   *
+   * @param providerId - OAuth Provider ID
+   * @returns User without password or null
+   */
+  async findByProviderId(providerId: string): Promise<IUser | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { providerId },
+    });
+
+    if (!user) return null;
+
+    return this.toIUser(user);
+  }
+
+  /**
    * Updates a user's password in the DB.
    * Expects already-hashed password — hashing done in AuthService.
    *
@@ -156,7 +210,8 @@ export class UserService implements IUserService {
    * @param hashed - Stored bcrypt hash
    * @returns true if match, false otherwise
    */
-  async validatePassword(plain: string, hashed: string): Promise<boolean> {
+  async validatePassword(plain: string, hashed: string | null): Promise<boolean> {
+    if (!hashed) return false; // OAuth users have no password
     return bcrypt.compare(plain, hashed);
   }
 
@@ -168,12 +223,14 @@ export class UserService implements IUserService {
   private toIUser(user: {
     id: string;
     email: string;
+    name?: string | null;
     role: string;
     isActive: boolean;
   }): IUser {
     return {
       id: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
       isActive: user.isActive,
     };

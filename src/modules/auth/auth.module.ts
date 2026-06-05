@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { UserModule } from '../user/user.module';
 import { TokenModule } from '../token/token.module';
 import { JwtAuthGuard } from '../../common/guards/jwt.guard';
+import { GoogleOAuthProvider } from './providers/google-oauth.provider';
 
 /**
  * AuthModule — Wires together all auth-related providers.
@@ -24,6 +25,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt.guard';
   providers: [
     AuthService,
     JwtAuthGuard, // registered here — use @UseGuards(JwtAuthGuard) in controllers
+    GoogleOAuthProvider,
   ],
   exports: [
     JwtAuthGuard, // export so other microservices can import and use

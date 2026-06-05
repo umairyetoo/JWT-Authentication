@@ -7,6 +7,9 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  Get,
+  Query,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -60,6 +63,45 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email and password' })
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto.email, dto.password);
+  }
+
+  /**
+   * GET /auth/google
+   * Redirects the user to Google's OAuth 2.0 consent screen.
+   */
+  @Get('google')
+  @ApiOperation({ summary: 'Redirects to Google OAuth consent screen' })
+  googleAuth(@Res() res: any) {
+    const url = this.authService.getGoogleAuthUrl();
+    res.redirect(url);
+  }
+
+  /**
+   * GET /auth/google/callback
+   * Handles the Authorization Code exchange and logs the user in.
+   */
+  @Get('google/callback')
+  @ApiOperation({ summary: 'Handles Google OAuth callback' })
+  async googleAuthCallback(@Query('code') code: string, @Res() res: any) {
+    const authResponse = await this.authService.loginWithGoogle(code);
+    
+    // Redirect to frontend with tokens in URL
+    // Since NestJS is serving public/, we can just redirect to localhost:3001 by default
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    res.redirect(`${frontendUrl}?accessToken=${authResponse.accessToken}&refreshToken=${authResponse.refreshToken}`);
+  }
+
+  /**
+   * GET /auth/me
+   * Protected — returns current user profile with masked email.
+   */
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Get current user profile' })
+  async getProfile(@CurrentUser() user: ITokenPayload) {
+    return this.authService.getProfile(user.sub);
   }
 
   /**
