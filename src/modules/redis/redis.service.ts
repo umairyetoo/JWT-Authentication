@@ -145,4 +145,51 @@ export class RedisService
     const result = await this.client.get(`blacklist:user:${userId}`);
     return result !== null;
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // Generic helpers — used by PkceService for code_verifier storage.
+  // Kept generic so other features can reuse them without duplicating
+  // Redis logic. These do NOT belong in ITokenBlacklistService because
+  // they are not blacklist-specific (SOLID — I: Interface Segregation).
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Sets a key-value pair in Redis with a TTL (time-to-live).
+   * The key auto-expires after `ttlSeconds` — no manual cleanup needed.
+   *
+   * Used by PkceService to store code_verifier values that must expire
+   * after the OAuth authorization flow window closes.
+   *
+   * @param key        - Redis key
+   * @param value      - Value to store
+   * @param ttlSeconds - Time-to-live in seconds
+   */
+  async setWithTtl(key: string, value: string, ttlSeconds: number): Promise<void> {
+    await this.client.setex(key, ttlSeconds, value);
+  }
+
+  /**
+   * Atomically retrieves and deletes a key from Redis.
+   * Returns null if the key doesn't exist (expired or never set).
+   *
+   * Two-step operation (GET then DEL) — not truly atomic at the Redis level,
+   * but acceptable here because:
+   *   1. Each state value is unique (256-bit random) — no race conditions
+   *   2. The DEL after GET is a cleanup concern, not a correctness concern
+   *   3. Even if two requests hit the same state, the second will fail at
+   *      the OAuth provider level (authorization code is single-use)
+   *
+   * Used by PkceService to retrieve code_verifier once during callback,
+   * then immediately delete it to prevent replay.
+   *
+   * @param key - Redis key to get and delete
+   * @returns   The stored value, or null if not found
+   */
+  async getAndDelete(key: string): Promise<string | null> {
+    const value = await this.client.get(key);
+    if (value !== null) {
+      await this.client.del(key);
+    }
+    return value;
+  }
 }

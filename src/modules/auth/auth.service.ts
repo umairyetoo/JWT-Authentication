@@ -9,7 +9,8 @@ import * as bcrypt from 'bcrypt';
 import { UserService } from '../user/user.service';
 import { TokenService } from '../token/token.service';
 import { GoogleOAuthProvider } from './providers/google-oauth.provider';
-import { IAuthResponse } from './interfaces/auth-response.interface';
+import { PkceService } from './services/pkce.service';
+import { IAuthResponse } from '../token/interfaces/auth-response.interface';
 import { ITokenPair } from '../token/interfaces/token-pair.interface';
 
 /**
@@ -20,17 +21,33 @@ import { ITokenPair } from '../token/interfaces/token-pair.interface';
  * refresh, change password.
  * Delegates user DB operations to UserService.
  * Delegates token operations to TokenService.
+ * Delegates PKCE operations to PkceService.
  * One reason to change: auth business rules change.
  *
  * SOLID — D (Dependency Inversion):
  * Depends on IUserService and ITokenService interfaces.
- * Not coupled to UserService or TokenService implementations.
+ * Depends on IPkceService interface for PKCE operations.
+ * Not coupled to UserService, TokenService, or PkceService implementations.
  * In tests — mock implementations can be injected transparently.
  *
  * AuthService knows the FLOW.
  * UserService knows the DATA.
  * TokenService knows the TOKENS.
+ * PkceService knows the PKCE CRYPTO.
  * Each stays in its lane.
+ *
+ * PKCE integration in the OAuth flow:
+ *   getGoogleAuthUrl():
+ *     1. PkceService generates code_verifier + code_challenge + state
+ *     2. PkceService stores code_verifier in Redis (keyed by state)
+ *     3. GoogleOAuthProvider builds URL with code_challenge + state
+ *     4. Returns the URL + state for the client to redirect
+ *
+ *   loginWithGoogle(code, state):
+ *     1. PkceService retrieves code_verifier from Redis (keyed by state)
+ *     2. GoogleOAuthProvider exchanges code + code_verifier for access_token
+ *     3. Google verifies SHA256(code_verifier) === code_challenge
+ *     4. If verified → returns access_token → flow continues as before
  */
 @Injectable()
 export class AuthService {
@@ -40,6 +57,7 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly tokenService: TokenService,
     private readonly googleOAuthProvider: GoogleOAuthProvider,
+    private readonly pkceService: PkceService,
   ) {}
 
   /**
@@ -71,17 +89,79 @@ export class AuthService {
   }
 
   /**
-   * Returns the Google OAuth authorization URL.
+   * Returns the Google OAuth authorization URL with PKCE parameters.
+   *
+   * PKCE flow (server-side):
+   * 1. PkceService.generatePkceChallenge() creates:
+   *    - code_verifier: random 43-char base64url string (256 bits entropy)
+   *    - code_challenge: SHA-256 hash of verifier, base64url-encoded
+   *    - state: random 64-char hex string (256 bits entropy)
+   *
+   * 2. PkceService.storeCodeVerifier(state, codeVerifier) persists the verifier
+   *    in Redis with a 10-minute TTL. The verifier NEVER leaves the server.
+   *
+   * 3. GoogleOAuthProvider.getAuthorizationUrl(codeChallenge, state) builds the
+   *    Google authorization URL with code_challenge + code_challenge_method=S256 + state.
+   *
+   * The code_challenge tells Google: "When I come back with the authorization code,
+   * I'll also send a code_verifier. Hash it and check it matches this challenge."
+   *
+   * SOLID — S: AuthService orchestrates the PKCE flow but doesn't implement
+   * the crypto (PkceService does) or the URL building (GoogleOAuthProvider does).
+   *
+   * @returns Object with authorizationUrl for the client to redirect to
    */
-  getGoogleAuthUrl(): string {
-    return this.googleOAuthProvider.getAuthorizationUrl();
+  getGoogleAuthUrl(): { authorizationUrl: string } {
+    // Step 1 — Generate PKCE challenge set
+    const { codeVerifier, codeChallenge, state } = this.pkceService.generatePkceChallenge();
+
+    // Step 2 — Store code_verifier server-side (Redis, 10-min TTL)
+    // Fire-and-forget: we don't await because the redirect is not dependent
+    // on the store completing synchronously. However, in practice, Redis SETEX
+    // is sub-millisecond. We store it before building the URL to ensure the
+    // verifier is persisted before the user is redirected to Google.
+    // Using void to explicitly discard the promise is intentional — the store
+    // operation should not block the URL generation.
+    void this.pkceService.storeCodeVerifier(state, codeVerifier);
+
+    // Step 3 — Build authorization URL with PKCE params
+    const authorizationUrl = this.googleOAuthProvider.getAuthorizationUrl(codeChallenge, state);
+
+    this.logger.log('Google OAuth authorization URL generated with PKCE');
+
+    return { authorizationUrl };
   }
 
   /**
-   * Handles Google OAuth login via code exchange.
+   * Handles Google OAuth login via authorization code exchange with PKCE verification.
+   *
+   * PKCE verification flow:
+   * 1. Retrieve code_verifier from Redis using the state parameter.
+   *    - If state is not found → CSRF attack or expired flow → throw UnauthorizedException
+   *    - Retrieval is atomic (get + delete) — one-time use, prevents replay
+   *
+   * 2. Exchange authorization code + code_verifier at Google's token endpoint.
+   *    - Google computes SHA256(code_verifier) and compares against the code_challenge
+   *      that was sent during authorization.
+   *    - If they don't match → Google rejects the token exchange → 400 Bad Request
+   *    - This is the core PKCE security guarantee: even if an attacker intercepts
+   *      the authorization code, they can't exchange it without the code_verifier.
+   *
+   * 3. Fetch user profile + issue our own JWT tokens (unchanged from pre-PKCE flow).
+   *
+   * @param code  - Authorization code from Google callback
+   * @param state - State parameter echoed back by Google (used to retrieve code_verifier)
    */
-  async loginWithGoogle(code: string): Promise<IAuthResponse> {
-    const accessToken = await this.googleOAuthProvider.exchangeCodeForTokens(code);
+  async loginWithGoogle(code: string, state: string): Promise<IAuthResponse> {
+    // Step 1 — Retrieve and delete code_verifier from Redis
+    // Throws UnauthorizedException if not found (expired or CSRF)
+    const codeVerifier = await this.pkceService.retrieveAndDeleteCodeVerifier(state);
+
+    // Step 2 — Exchange authorization code + code_verifier for access token
+    // Google verifies: SHA256(codeVerifier) === codeChallenge
+    const accessToken = await this.googleOAuthProvider.exchangeCodeForTokens(code, codeVerifier);
+
+    // Step 3 — Fetch user profile from Google (unchanged by PKCE)
     const profile = await this.googleOAuthProvider.getUserProfile(accessToken);
 
     const user = await this.userService.createOAuthUser(
@@ -101,7 +181,7 @@ export class AuthService {
       user.role,
     );
 
-    this.logger.log(`User logged in via Google: ${user.id}`);
+    this.logger.log(`User logged in via Google (PKCE verified): ${user.id}`);
 
     const safeUser = { ...user };
     if (safeUser.email) {

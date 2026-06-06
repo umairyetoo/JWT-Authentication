@@ -266,10 +266,27 @@
             }
         });
 
-        // Google OAuth 2.0 Authorization Code Grant Flow
-        googleLoginBtn.addEventListener('click', () => {
-            // Redirect to the backend OAuth initialization endpoint
-            window.location.href = 'http://localhost:3001/auth/google';
+        // Google OAuth 2.0 Authorization Code Grant Flow with PKCE
+        // Instead of directly redirecting to /auth/google, we fetch the authorization URL
+        // from the backend. The backend generates PKCE parameters (code_challenge, state)
+        // server-side and embeds them in the Google authorization URL.
+        // The code_verifier is stored server-side in Redis — it NEVER reaches the frontend.
+        googleLoginBtn.addEventListener('click', async () => {
+            try {
+                // Fetch the authorization URL with PKCE params from the backend
+                const res = await fetch('http://localhost:3001/auth/google');
+                const data = await res.json();
+
+                if (data.authorizationUrl) {
+                    // Redirect the user to Google's consent screen
+                    // The URL now includes code_challenge, code_challenge_method=S256, and state
+                    window.location.href = data.authorizationUrl;
+                } else {
+                    alert('Failed to get authorization URL from server');
+                }
+            } catch (error) {
+                alert('Error connecting to server: ' + error.message);
+            }
         });
 
         // Logout Flow

@@ -156,6 +156,21 @@ This project implements Google OAuth 2.0 using the **Authorization Code Grant** 
      └──────────┘
 ```
 
+### PKCE (Proof Key for Code Exchange) Protection
+
+This implementation uses **PKCE** (RFC 7636) to secure the Authorization Code Grant flow. While originally designed for public clients (like mobile apps or SPAs), OAuth 2.1 recommends PKCE for *all* clients, including confidential server-side applications like this one.
+
+**Why it was added:**
+Standard Authorization Code Grant is vulnerable to **Authorization Code Interception Attacks**. If an attacker manages to intercept the `code` returned by Google in step 4 (e.g., via a compromised browser extension, malicious proxy, or log leakage), they could theoretically exchange it for an access token.
+
+**How PKCE protects the flow:**
+1. **Challenge Generation:** Before redirecting to Google, the server generates a cryptographically random `code_verifier` and its SHA-256 hash (`code_challenge`).
+2. **Authorization:** The server sends the `code_challenge` to Google in the initial redirect. It stores the `code_verifier` in Redis (keyed by a random `state` parameter).
+3. **Token Exchange:** When the callback returns with the `code`, the server retrieves the `code_verifier` from Redis and sends it alongside the `code` to Google's token endpoint.
+4. **Verification:** Google hashes the provided `code_verifier` and compares it to the `code_challenge` from step 2. If they match, the token is issued.
+
+Even if an attacker intercepts the `code` in step 4, they cannot exchange it for a token because they do not have the `code_verifier`, which is securely stored in the backend's Redis instance and never exposed to the frontend or network.
+
 ### Step 1: Create a Google OAuth App
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/).

@@ -10,6 +10,7 @@ import {
   Get,
   Query,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -26,14 +27,30 @@ import { IRequestWithUser } from '../../common/interfaces/request-with-user.inte
  *
  * SOLID — S (Single Responsibility):
  * Only responsible for HTTP concerns:
- *   - Extracting request data
+ *   - Extracting request data (body, query params, headers)
+ *   - Validating required parameters (state, code)
  *   - Calling AuthService
  *   - Returning responses
  * Zero business logic lives here.
+ * Zero PKCE logic lives here — AuthService orchestrates the flow.
  *
  * SOLID — D (Dependency Inversion):
- * Depends on AuthService — not on UserService or TokenService directly.
+ * Depends on AuthService — not on UserService, TokenService, or PkceService directly.
  * Controller only knows about the auth flow, not its internals.
+ *
+ * PKCE impact on controller:
+ *   GET /auth/google:
+ *     - Changed from redirect to JSON response.
+ *     - Returns { authorizationUrl } — the client redirects to it.
+ *     - This is necessary because the backend generates PKCE params (code_challenge,
+ *       state) server-side and embeds them in the URL. A direct redirect would
+ *       work, but returning JSON gives the frontend more control (e.g., opening
+ *       in a popup, showing a loading state).
+ *
+ *   GET /auth/google/callback:
+ *     - Now extracts both `code` and `state` from query params.
+ *     - Validates that both are present before calling AuthService.
+ *     - Passes `state` to AuthService so it can retrieve the code_verifier.
  */
 @ApiTags('Auth')
 @Controller('auth')
@@ -67,23 +84,65 @@ export class AuthController {
 
   /**
    * GET /auth/google
-   * Redirects the user to Google's OAuth 2.0 consent screen.
+   * Returns the Google OAuth 2.0 authorization URL with PKCE parameters.
+   *
+   * Why JSON response instead of redirect?
+   * The backend generates PKCE params (code_challenge, state) server-side and
+   * embeds them in the authorization URL. Returning JSON allows the frontend to:
+   *   1. Fetch the URL via API call
+   *   2. Redirect the user to Google's consent screen
+   *   3. Maintain control over the UX (loading states, error handling)
+   *
+   * The response contains:
+   *   - authorizationUrl: Full Google OAuth URL with client_id, redirect_uri,
+   *     scope, code_challenge, code_challenge_method=S256, and state.
+   *
+   * The code_verifier is stored server-side in Redis (keyed by state).
+   * It NEVER appears in the response — only the derived code_challenge is
+   * sent to Google via the authorization URL.
    */
   @Get('google')
-  @ApiOperation({ summary: 'Redirects to Google OAuth consent screen' })
-  googleAuth(@Res() res: any) {
-    const url = this.authService.getGoogleAuthUrl();
-    res.redirect(url);
+  @ApiOperation({ summary: 'Returns Google OAuth authorization URL with PKCE' })
+  googleAuth() {
+    return this.authService.getGoogleAuthUrl();
   }
 
   /**
    * GET /auth/google/callback
-   * Handles the Authorization Code exchange and logs the user in.
+   * Handles the Google OAuth callback with PKCE verification.
+   *
+   * Query parameters:
+   *   - code:  Authorization code from Google (used to get access token)
+   *   - state: Random string echoed back by Google (used to retrieve code_verifier)
+   *
+   * PKCE verification happens inside AuthService.loginWithGoogle():
+   *   1. Retrieves code_verifier from Redis using state
+   *   2. Sends code + code_verifier to Google's token endpoint
+   *   3. Google verifies SHA256(code_verifier) === code_challenge
+   *
+   * Security validations at this layer:
+   *   - Both code and state must be present → if missing, reject immediately
+   *   - This prevents processing requests that can't possibly succeed
+   *   - Detailed PKCE/CSRF validation happens in PkceService
    */
   @Get('google/callback')
-  @ApiOperation({ summary: 'Handles Google OAuth callback' })
-  async googleAuthCallback(@Query('code') code: string, @Res() res: any) {
-    const authResponse = await this.authService.loginWithGoogle(code);
+  @ApiOperation({ summary: 'Handles Google OAuth callback with PKCE verification' })
+  async googleAuthCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: any,
+  ) {
+    // Validate required query parameters
+    // Both are mandatory when PKCE is enabled:
+    //   - code:  without it, there's nothing to exchange
+    //   - state: without it, we can't retrieve the code_verifier from Redis
+    if (!code || !state) {
+      throw new UnauthorizedException(
+        'Missing required OAuth callback parameters (code and state)',
+      );
+    }
+
+    const authResponse = await this.authService.loginWithGoogle(code, state);
     
     // Redirect to frontend with tokens in URL
     // Since NestJS is serving public/, we can just redirect to localhost:3001 by default
