@@ -48,4 +48,3 @@ async function bootstrap(): Promise<void> {
   logger.log(`Auth service running on port ${port}`);
 }
 
-bootstrap();
